@@ -16,4 +16,5 @@ Build
 Start
 -----
 
-    java -jar ForceMeter.jar
+    # start swtor first and use fullscreen(windowed) mode
+    java -jar ForceMeter.jar <Path to Combat Logs>
