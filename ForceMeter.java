@@ -20,7 +20,7 @@ import java.awt.*;
 import java.awt.event.*;
 
 import javax.swing.*;
-import javax.swing.table.DefaultTableModel;
+import javax.swing.table.*;
 
 import java.io.File;
 import java.io.FilenameFilter;
@@ -30,6 +30,8 @@ import java.io.IOException;
 import java.util.regex.Pattern;
 import java.util.Hashtable;
 import java.util.Date;
+import java.util.ArrayList;
+import java.util.List;
 
 import java.text.SimpleDateFormat;
 
@@ -42,7 +44,8 @@ public class ForceMeter {
 
   private static JFrame frame = new JFrame("Forcemeter");
 
-  private static JTable table = new JTable(new DefaultTableModel(new Object[]{"Name", "Damage (DPS)"}, 0));
+  private static JTable table = new JTable(new DefaultTableModel(
+        new Object[]{"Name", "Damage", "DPS"}, 0));
 
   private File combatLog = null;
 
@@ -257,9 +260,10 @@ public class ForceMeter {
       }
 
       if (index > -1) {
-        model.setValueAt(damage+" ("+dps+" dps)", index, 1);
+        model.setValueAt(damage, index, 1);
+        model.setValueAt(dps, index, 2);
       } else {
-        model.addRow(new Object[]{curName, damage+" ("+dps+" dps)"});
+        model.addRow(new Object[]{curName, damage, dps});
       }
 
       //label.setText(curName+": "+damage+" ("+dps+" dps)");
@@ -271,6 +275,13 @@ public class ForceMeter {
 
   private void run(String[] args) {
     table.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
+
+    TableRowSorter<TableModel> sorter = new TableRowSorter<TableModel>(table.getModel());
+    table.setRowSorter(sorter);
+
+    List<RowSorter.SortKey> sortKeys = new ArrayList<>(25);
+    sortKeys.add(new RowSorter.SortKey(2, SortOrder.ASCENDING));
+    sorter.setSortKeys(sortKeys);
 
     JScrollPane scrollPane = new JScrollPane(table);
 
