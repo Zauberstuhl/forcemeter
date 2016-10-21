@@ -25,6 +25,7 @@ import javax.swing.table.DefaultTableModel;
 import java.io.File;
 import java.io.FilenameFilter;
 import java.io.RandomAccessFile;
+import java.io.IOException;
 
 import java.util.regex.Pattern;
 import java.util.Hashtable;
@@ -34,6 +35,8 @@ import java.text.SimpleDateFormat;
 
 public class ForceMeter {
 
+  public static boolean DEBUG = true;
+
   private static Hashtable<String, Long> damageDone
     = new Hashtable<String, Long>();
 
@@ -41,10 +44,26 @@ public class ForceMeter {
 
   private static JTable table = new JTable(new DefaultTableModel(new Object[]{"Name", "Damage (DPS)"}, 0));
 
-  private File combatLog(String cwd) {
+  private File combatLog = null;
+
+  public void setCombatLog(File log) {
+    this.combatLog = log;
+  }
+
+  public File getCombatLog() {
+    return this.combatLog;
+  }
+
+  private File findCombatLog(String cwd) {
     Long lastMod = 0L;
     File logFile = null;
-    File[] files = findCombatLogs(cwd);
+    File dir = new File(cwd);
+    File[] files =  dir.listFiles(new FilenameFilter() {
+      public boolean accept(File dir, String filename) {
+        return filename.endsWith(".txt");
+      }
+    });
+
     for (File file : files) {
       if (file.lastModified() > lastMod) {
         logFile = file;
@@ -54,46 +73,80 @@ public class ForceMeter {
     return logFile;
   }
 
-  class ParserThread extends Thread {
+  class CombatLogThread extends Thread {
+
+    private int SLEEP = 10000; // 10 s
 
     private String cwd = null;
 
-    public ParserThread(String cwd) {
+    public CombatLogThread(String cwd) {
       this.cwd = cwd;
     }
 
     public void run() {
-      if (combatLog(this.cwd) == null) {
-        System.out.println("No combat log found! Abort.");
+      try {
+        while (true) {
+          File oldLog = getCombatLog();
+          File newLog = findCombatLog(this.cwd);
+          if (oldLog == null || !(oldLog.getName().equals(newLog.getName()))) {
+            if (DEBUG) {
+              System.out.println("Updating combat log location: "+newLog.getName());
+            }
+            setCombatLog(newLog);
+          }
+          Thread.sleep(this.SLEEP);
+        }
+      } catch (InterruptedException ie) {
+        System.out.println(ie.getMessage());
         System.exit(1);
       }
+    }
+  }
 
+  class ParserThread extends Thread {
+
+    private int SLEEP = 500; // 500 ms
+
+    public ParserThread(String cwd) {
+      Thread combatLogThread = new CombatLogThread(cwd);
+      combatLogThread.start();
+    }
+
+    public void run() {
       long lastKnownPosition = 0L;
-      try {
-        while(true) {
-          File combatLogFile = combatLog(this.cwd);
-          long fileLength = combatLogFile.length();
-          if (fileLength > lastKnownPosition) {
-            RandomAccessFile randomAccessFile = new RandomAccessFile(combatLogFile, "r");
-            randomAccessFile.seek(lastKnownPosition);
-            String combatLogLine = null;
-            while ((combatLogLine = randomAccessFile.readLine()) != null) {
-              try {
-                parseCombatLogLine(combatLogLine);
-              } catch (Exception e) {
-                System.out.println(e.getMessage());
+      while(true) {
+        try {
+          File combatLogFile = getCombatLog();
+          if (combatLogFile == null) {
+            // TODO display in gui
+          } else {
+            long fileLength = combatLogFile.length();
+            if (fileLength > lastKnownPosition) {
+              RandomAccessFile randomAccessFile =
+                new RandomAccessFile(combatLogFile, "r");
+              randomAccessFile.seek(lastKnownPosition);
+              String combatLogLine = null;
+              while ((combatLogLine = randomAccessFile.readLine()) != null) {
+                try {
+                  parseCombatLogLine(combatLogLine);
+                } catch (Exception e) {
+                  System.out.println(e.getMessage());
+                }
               }
+              lastKnownPosition = randomAccessFile.getFilePointer();
+              randomAccessFile.close();
             }
-            lastKnownPosition = randomAccessFile.getFilePointer();
-            randomAccessFile.close();
           }
-
-          //frame.toFront();
-          Thread.sleep(500);
+        } catch (IOException ioe) {
+          System.out.println(ioe.getMessage());
         }
-      } catch (Exception e) {
-        System.out.println(e.getMessage());
-        System.exit(1);
+        // prevents bombing cpu
+        try {
+          Thread.sleep(this.SLEEP);
+        } catch (InterruptedException ie) {
+          System.out.println(ie.getMessage());
+          System.exit(1);
+        }
       }
     }
   }
@@ -155,15 +208,6 @@ public class ForceMeter {
     return -1;
   }
 
-  private static File[] findCombatLogs(String dirName) {
-    File dir = new File(dirName);
-    return dir.listFiles(new FilenameFilter() {
-      public boolean accept(File dir, String filename) {
-        return filename.endsWith(".txt");
-      }
-    });
-  }
-
   private static void parseCombatLogLine(String line) throws Exception {
     //EnterCombat
     if (Pattern.matches("^.*EnterCombat.*$", line)) {
@@ -207,7 +251,11 @@ public class ForceMeter {
 
       DefaultTableModel model = (DefaultTableModel) table.getModel();
       int index = existsInTable(table, curName);
-      System.out.println(curName + ": " + damage+" ("+dps+" dps)");
+
+      if (DEBUG) {
+        System.out.println(curName + ": " + damage+" ("+dps+" dps)");
+      }
+
       if (index > -1) {
         model.setValueAt(damage+" ("+dps+" dps)", index, 1);
       } else {
