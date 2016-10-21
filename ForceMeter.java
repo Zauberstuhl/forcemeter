@@ -41,6 +41,63 @@ public class ForceMeter {
 
   private static JTable table = new JTable(new DefaultTableModel(new Object[]{"Name", "Damage (DPS)"}, 0));
 
+  private File combatLog(String cwd) {
+    Long lastMod = 0L;
+    File logFile = null;
+    File[] files = findCombatLogs(cwd);
+    for (File file : files) {
+      if (file.lastModified() > lastMod) {
+        logFile = file;
+        lastMod = file.lastModified();
+      }
+    }
+    return logFile;
+  }
+
+  class ParserThread extends Thread {
+
+    private String cwd = null;
+
+    public ParserThread(String cwd) {
+      this.cwd = cwd;
+    }
+
+    public void run() {
+      if (combatLog(this.cwd) == null) {
+        System.out.println("No combat log found! Abort.");
+        System.exit(1);
+      }
+
+      long lastKnownPosition = 0L;
+      try {
+        while(true) {
+          File combatLogFile = combatLog(this.cwd);
+          long fileLength = combatLogFile.length();
+          if (fileLength > lastKnownPosition) {
+            RandomAccessFile randomAccessFile = new RandomAccessFile(combatLogFile, "r");
+            randomAccessFile.seek(lastKnownPosition);
+            String combatLogLine = null;
+            while ((combatLogLine = randomAccessFile.readLine()) != null) {
+              try {
+                parseCombatLogLine(combatLogLine);
+              } catch (Exception e) {
+                System.out.println(e.getMessage());
+              }
+            }
+            lastKnownPosition = randomAccessFile.getFilePointer();
+            randomAccessFile.close();
+          }
+
+          //frame.toFront();
+          Thread.sleep(500);
+        }
+      } catch (Exception e) {
+        System.out.println(e.getMessage());
+        System.exit(1);
+      }
+    }
+  }
+
   class BorderPanel extends JPanel {
     private JLabel label;
     int pX, pY;
@@ -119,12 +176,6 @@ public class ForceMeter {
 
       DefaultTableModel model = (DefaultTableModel) table.getModel();
       model.setRowCount(0);
-      //int rowCount = model.getRowCount();
-      //for (int i = 0; i < rowCount; i++) {
-        //model.removeRow(i);
-      //}
-      //label.revalidate();
-      //label.repaint();
       return;
     }
     //ExitCombat
@@ -156,6 +207,7 @@ public class ForceMeter {
 
       DefaultTableModel model = (DefaultTableModel) table.getModel();
       int index = existsInTable(table, curName);
+      System.out.println(curName + ": " + damage+" ("+dps+" dps)");
       if (index > -1) {
         model.setValueAt(damage+" ("+dps+" dps)", index, 1);
       } else {
@@ -175,7 +227,7 @@ public class ForceMeter {
     JScrollPane scrollPane = new JScrollPane(table);
 
     // initial size of the main frame
-    frame.setPreferredSize(new Dimension(300, 350));
+    frame.setPreferredSize(new Dimension(250, 200));
 
     frame.setBackground(Color.gray);
     frame.add(scrollPane, BorderLayout.CENTER);
@@ -191,6 +243,9 @@ public class ForceMeter {
 
     frame.pack();
     frame.setVisible(true);
+
+    // startup log parser
+    new ParserThread(args[0]).start();
   }
 
   public static void main(String[] args) {
@@ -199,54 +254,7 @@ public class ForceMeter {
       System.exit(1);
     }
 
-    Long lastMod = 0L;
-    File combatLog = null;
-    File[] files = findCombatLogs(args[0]);
-    for (File file : files) {
-      if (lastMod == 0L || file.lastModified() > lastMod) {
-        combatLog = file;
-      }
-      lastMod = file.lastModified();
-    }
-    if (combatLog == null) {
-      System.out.println("No combat log found! Abort.");
-      System.exit(1);
-    }
-
     // startup gui
     new ForceMeter().run(args);
-
-    long lastKnownPosition = 0L;
-    try {
-      while(true) {
-        long fileLength = combatLog.length();
-        if (fileLength > lastKnownPosition) {
-          RandomAccessFile randomAccessFile = new RandomAccessFile(combatLog, "r");
-          randomAccessFile.seek(lastKnownPosition);
-          String combatLogLine = null;
-          while ((combatLogLine = randomAccessFile.readLine()) != null) {
-            try {
-              parseCombatLogLine(combatLogLine);
-            } catch (Exception e) {
-              System.out.println(e.getMessage());
-            }
-          }
-          lastKnownPosition = randomAccessFile.getFilePointer();
-          randomAccessFile.close();
-        } else {
-           //e("Hmm.. Couldn't found new line after line # " + crunchifyCounter);
-        }
-
-        //System.out.println("isAlwaysOnTopSupported: "+ frame.isAlwaysOnTopSupported());
-        //System.out.println("isAlwaysOnTop: "+ frame.isAlwaysOnTop());
-        //System.out.println("toFront "); frame.toFront();
-        //System.out.println("setAlwaysOnTop "); frame.setAlwaysOnTop(true);
-
-        Thread.sleep(500);
-      }
-    } catch (Exception e) {
-      System.out.println(e.getMessage());
-      System.exit(1);
-    }
   }
 }
